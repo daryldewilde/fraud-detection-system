@@ -1,0 +1,8 @@
+file,purpose
+sample_normal_baseline.csv,"Low-risk baseline, mostly successful and balanced services"
+sample_high_velocity_failures.csv,High tx velocity + high failure ratio
+sample_service_concentration.csv,Service concentration behavior
+sample_cashout_chain_patterns.csv,Cashout to immediate cashin/transfer chains
+sample_repeated_amount_chains.csv,Repeated similar amount chains
+sample_mixed_anomaly_day.csv,Mixed day-long activity with anomaly-heavy agents
+sample_dirty_input.csv,Data quality edge cases for cleaning/validation
