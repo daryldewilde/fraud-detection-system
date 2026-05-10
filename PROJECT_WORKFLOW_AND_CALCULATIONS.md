@@ -14,10 +14,23 @@ The system analyzes transaction data and identifies suspicious behavior by combi
 
 It is designed to support business users, compliance teams, and investigators.
 
+**Phase 1 Enhancement:** User management and analysis persistence layer added for production use:
+- Multi-user support with authentication
+- Persistent storage of all analyses in SQLite database
+- Complete audit trail with timestamps and user attribution
+- Download history of input files and generated reports
+- Data isolation by user (secure access control)
+
 ## 2. End-to-End Workflow
 
 The main execution flow is:
 
+**User & Session Management (Phase 1):**
+1. User logs in with email/password (bcrypt verification)
+2. Session created and maintained throughout browser session
+3. User identity attached to all downstream operations
+
+**Analysis Workflow:**
 1. Load transaction file (CSV or XLSX)
 2. Clean and validate data
 3. Build hourly features per agent
@@ -25,8 +38,80 @@ The main execution flow is:
 5. Compute risk level
 6. Generate human-readable reasons and details
 7. Show results in UI and allow report export
+8. User saves analysis to history (optional)
+   - Input file saved to user-specific directory
+   - Results serialized and stored in database
+   - Report exported and linked to analysis record
+   - Timestamp and user ID recorded for audit
 
-## 3. Input Data and Cleaning
+**Historical Access:**
+9. User navigates to "Analysis History" tab
+10. Retrieve all past analyses from database
+11. Display with statistics (transaction count, suspicious count, avg risk)
+12. Allow re-download of original input files
+13. Allow re-download of generated reports
+14. Expand to view full detection results
+
+## 3. User Management & Data Persistence (Phase 1)
+
+The system now includes a multi-user architecture with secure data storage:
+
+### Authentication
+- Users register with email and password
+- Passwords hashed with bcrypt (never stored plaintext)
+- Streamlit session state maintains authentication status
+- Session automatically invalidates on browser close or logout
+
+### Database Structure (SQLite)
+
+**Users Table:**
+- `id`: Unique user identifier
+- `email`: Email address (unique constraint)
+- `password_hash`: Bcrypt-hashed password
+- `created_at`: Account creation timestamp
+- `is_active`: Account status flag
+
+**Analyses Table:**
+- `id`: Analysis record identifier
+- `user_id`: Foreign key to user (owner)
+- `filename`: Original uploaded filename
+- `input_file_path`: Path to stored input file
+- `report_file_path`: Path to stored report file
+- `results_json`: Serialized detection results (JSON)
+- `created_at`: Analysis timestamp
+- `total_rows`: Row count for statistics
+- `suspicious_count`: Number of suspicious cases flagged
+- `avg_risk_score`: Average risk score for summary display
+
+### File Storage
+
+**Hybrid Model:**
+- Input files stored in `data/uploads/user_{user_id}/` directory
+- Reports stored in `outputs/reports/user_{user_id}/` directory
+- File metadata and paths stored in SQLite
+- User-specific access control (cannot access other users' files)
+- Automatic timestamp-based filename uniqueness
+
+### Security & Audit Trail
+
+**User Isolation:**
+- Each user can only access their own analyses
+- File system paths include user ID for separation
+- Database queries filtered by user_id on all access
+
+**Audit Trail:**
+- Every analysis records: who (user_id), when (created_at), what (filename, stats)
+- Input files preserved for compliance review
+- Reports linked to specific analyses for traceability
+- Timestamps enable timeline reconstruction
+
+How this helps fraud detection operations:
+- Multiple analysts can work independently without data conflicts
+- Compliance audits can trace who analyzed what and when
+- Historical analyses enable case review and pattern learning
+- File retention supports regulatory requirements
+
+## 4. Input Data and Cleaning
 
 Expected columns:
 
@@ -53,7 +138,7 @@ How this helps fraud detection:
 - Makes feature calculations consistent.
 - Ensures time-based behavior analysis is reliable.
 
-## 4. Feature Engineering (Per Agent, Per Hour)
+## 5. Feature Engineering (Per Agent, Per Hour)
 
 The core aggregation window is one hour per agent.
 
@@ -83,7 +168,7 @@ How this helps fraud detection:
 - High `fail_ratio` often signals probing, retries, or blocked fraudulent attempts.
 - Extreme amount behavior can indicate attempted cash-out or laundering spikes.
 
-## 5. Detection Layer A: Rule-Based Flags
+## 6. Detection Layer A: Rule-Based Flags
 
 The rule layer creates boolean flags from threshold checks.
 
@@ -105,7 +190,7 @@ How this helps fraud detection:
 - Fast baseline signal for known risk behavior.
 - Good for compliance and operational rules.
 
-## 6. Detection Layer B: Pattern Flags
+## 7. Detection Layer B: Pattern Flags
 
 The pattern layer detects suspicious sequence behavior.
 
@@ -132,7 +217,7 @@ Why this matters:
 
 - Repeated near-identical transfers may signal scripted fraud, mule routing, or testing loops.
 
-## 7. Detection Layer C: Unusual Behavior (Isolation Forest)
+## 8. Detection Layer C: Unusual Behavior (Isolation Forest)
 
 The anomaly layer uses Isolation Forest on numeric features:
 
@@ -158,7 +243,7 @@ How this helps fraud detection:
 - Catches behavior that does not match known rule patterns.
 - Useful for emerging fraud strategies.
 
-## 8. Risk Level Calculation
+## 9. Risk Level Calculation
 
 The final risk level is a weighted sum of flags.
 
@@ -193,7 +278,7 @@ How this helps fraud detection:
 - Combines multiple weak/strong signals into a single triage score.
 - Supports priority ranking of cases for investigation.
 
-## 9. Explainability Output
+## 10. Explainability Output
 
 Each result row includes:
 
@@ -205,7 +290,7 @@ How this helps fraud detection:
 - Investigators can understand why a case was flagged.
 - Supports audit reviews and regulator-facing evidence.
 
-## 10. Report Fields for Audit
+## 11. Report Fields for Audit
 
 Exported report includes:
 
@@ -219,7 +304,7 @@ How this helps fraud detection:
 
 - Creates traceable, reviewable outputs for operations and compliance.
 
-## 11. Why Multi-Layer Detection Is Stronger
+## 12. Why Multi-Layer Detection Is Stronger
 
 Using only one method can miss cases:
 
@@ -233,7 +318,7 @@ Combining all layers improves:
 - Explainability
 - Practical investigation value
 
-## 12. Practical Interpretation Guide
+## 13. Practical Interpretation Guide
 
 Use risk level as a triage signal:
 
