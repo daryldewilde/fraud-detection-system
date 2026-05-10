@@ -16,8 +16,9 @@ Production-ready fintech fraud detection platform with user authentication, anal
 - Human-readable explanations and metric details for each detection
 
 **User Management & History (Phase 1):**
-- User authentication with email/password (bcrypt hashed)
-- Account creation and login
+- Admin-created user accounts with email/password login
+- Default admin account can create new users after login
+- First-login password change required for newly created users
 - Analysis persistence to SQLite database
 - View complete history of all past analyses
 - Re-download original input files
@@ -71,9 +72,9 @@ streamlit run app.py
 ```
 
 The app will:
-1. Show login/signup page on first visit
-2. Create user account (email + password)
-3. Redirect to main dashboard after login
+1. Show a login page on first visit
+2. Let the seeded admin sign in and create new users
+3. Force first-time users to change their password on initial login
 4. Preserve all analyses in database for future sessions
 
 ## Input Schema
@@ -114,10 +115,16 @@ All reports are saved to history for re-download.
 
 ### Tab 2: Analysis History
 - List all past analyses with statistics
+- Show the analyser for each analysis record
 - **Re-download input file** - Access original data anytime
 - **Re-download report** - Retrieve generated Excel/PDF
 - **View results** - Expand to see full detection details
 - Organized by user account (secure access)
+
+### Admin Access
+- A default admin account is seeded on first run
+- The admin can create user accounts from the sidebar
+- New users receive a one-time password and must change it on first login
 
 ## Test
 
@@ -133,7 +140,8 @@ pytest -q
 - Auto-created on first run at `fraud_detection.db`
 
 **Authentication:**
-- Email/password registration and login
+- Admin-created accounts with email/password login
+- First-login password reset for newly created users
 - Bcrypt hashing for password security
 - Streamlit session state for access control
 - User ownership verification on all data access

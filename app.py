@@ -1,15 +1,26 @@
 """Streamlit interface for the Explainable Fraud Detection System."""
 
 from datetime import datetime
+import secrets
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from src.auth import init_session_state, login_page, logout, require_auth, get_current_user_id, get_current_user_email
+from src.auth import (
+    init_session_state,
+    login_page,
+    logout,
+    require_auth,
+    get_current_user_id,
+    get_current_user_email,
+    get_current_user_role,
+    must_change_password,
+    password_change_page,
+)
 from src.config import FraudConfig
 from src.data_loader import load_transactions
-from src.database import init_db, create_analysis, get_user_analyses
+from src.database import init_db, create_analysis, get_user_analyses, create_user, get_user_by_email
 from src.detection import run_fraud_detection
 from src.feature_engineering import compute_hourly_agent_features
 from src.file_manager import init_storage, save_uploaded_file, save_report_file, get_file_bytes, file_exists, get_filename_from_path
@@ -73,6 +84,10 @@ if not require_auth():
     login_page()
     st.stop()
 
+if must_change_password():
+    password_change_page()
+    st.stop()
+
 # Authenticated user - show main app
 st.title("Fraud Detection System")
 st.caption("Production-grade fraud detection with analysis history and audit trails.")
@@ -87,6 +102,34 @@ with st.sidebar:
         if st.button("Logout", use_container_width=True):
             logout()
     st.markdown("---")
+
+    if get_current_user_role() == "admin":
+        st.subheader("Admin Panel")
+        with st.expander("Create user account", expanded=False):
+            new_user_email = st.text_input("User Email", key="admin_new_user_email")
+            temporary_password = st.text_input("Temporary Password (optional)", key="admin_temp_password")
+            if not temporary_password:
+                st.caption("Leave blank to auto-generate a one-time password when creating the user.")
+
+            if st.button("Create User", use_container_width=True):
+                if not new_user_email:
+                    st.error("Enter an email address")
+                elif get_user_by_email(new_user_email):
+                    st.error("That email already exists")
+                else:
+                    try:
+                        generated_password = temporary_password or secrets.token_urlsafe(10)
+                        created_user = create_user(
+                            new_user_email,
+                            generated_password,
+                            role="user",
+                            force_password_change=True,
+                        )
+                        st.success(f"Created user: {created_user.email}")
+                        st.info("They will be prompted to change their password on first login.")
+                        st.code(generated_password)
+                    except Exception as exc:
+                        st.error(f"Could not create user: {exc}")
 
 # Tabs for different sections
 tab1, tab2 = st.tabs(["New Analysis", "Analysis History"])
@@ -267,7 +310,7 @@ with tab1:
     with col_excel:
         excel_data = dataframe_to_excel_bytes(report_for_export)
         st.download_button(
-            label="📥 Download Report (Excel)",
+            label="Download Report (Excel)",
             data=excel_data,
             file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -276,14 +319,14 @@ with tab1:
     with col_pdf:
         pdf_data = dataframe_to_pdf_bytes(report_for_export)
         st.download_button(
-            label="📥 Download Report (PDF)",
+            label="Download Report (PDF)",
             data=pdf_data,
             file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
             mime="application/pdf",
         )
 
     # Save analysis to database
-    if st.button("💾 Save This Analysis", use_container_width=True):
+    if st.button("Save This Analysis", use_container_width=True):
         try:
             # Save report files
             excel_bytes = dataframe_to_excel_bytes(report_for_export)
@@ -293,6 +336,7 @@ with tab1:
             results_dict = report.to_dict(orient="records")
             analysis = create_analysis(
                 user_id=get_current_user_id(),
+                analyzer_email=get_current_user_email(),
                 filename=uploaded_file.name,
                 input_file_path=input_file_path,
                 results_df=results_dict,
@@ -305,7 +349,7 @@ with tab1:
             from src.database import update_analysis_report
             update_analysis_report(analysis.id, report_path)
 
-            st.success(f"✅ Analysis saved! ID: {analysis.id}")
+            st.success(f"Analysis saved — ID: {analysis.id}")
             st.balloons()
         except Exception as e:
             st.error(f"Error saving analysis: {str(e)}")
@@ -339,12 +383,14 @@ with tab2:
                 with col1:
                     st.markdown(f"**{analysis.filename}**")
                     st.caption(f"Analyzed: {analysis.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                    if analysis.analyzer_email:
+                        st.caption(f"Analyzer: {analysis.analyzer_email}")
 
                     if analysis.total_rows:
                         st.markdown(
-                            f"📊 {analysis.total_rows} transactions | "
-                            f"🚨 {analysis.suspicious_count} flagged | "
-                            f"⚠️ Risk: {analysis.avg_risk_score:.2f}"
+                            f"{analysis.total_rows} transactions | "
+                            f"{analysis.suspicious_count} flagged | "
+                            f"Avg risk: {analysis.avg_risk_score:.2f}"
                         )
 
                 with col2:
@@ -355,7 +401,7 @@ with tab2:
                         try:
                             file_bytes = get_file_bytes(analysis.input_file_path)
                             st.download_button(
-                                label="📋 Input File",
+                                label="Input File",
                                 data=file_bytes,
                                 file_name=get_filename_from_path(analysis.input_file_path),
                                 key=f"input_{analysis.id}",
@@ -373,7 +419,7 @@ with tab2:
                         try:
                             file_bytes = get_file_bytes(analysis.report_file_path)
                             st.download_button(
-                                label="📄 Report",
+                                label="Report",
                                 data=file_bytes,
                                 file_name=get_filename_from_path(analysis.report_file_path),
                                 key=f"report_{analysis.id}",

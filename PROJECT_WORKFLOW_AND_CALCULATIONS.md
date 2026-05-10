@@ -57,7 +57,8 @@ The main execution flow is:
 The system now includes a multi-user architecture with secure data storage:
 
 ### Authentication
-- Users register with email and password
+- A seeded admin account logs in first and creates user accounts
+- New users receive a one-time password and are forced to change it on first login
 - Passwords hashed with bcrypt (never stored plaintext)
 - Streamlit session state maintains authentication status
 - Session automatically invalidates on browser close or logout

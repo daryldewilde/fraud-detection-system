@@ -14,7 +14,9 @@
 
 #### `src/auth.py` - Authentication & Session Management
 - Streamlit session state initialization
-- Login/Signup page with email & password
+- Login page with email & password
+- Admin-only user creation flow
+- First-login password change screen
 - User authentication with password verification
 - Current user getters (user_id, user_email)
 - Logout functionality
@@ -42,6 +44,7 @@ Added:
 **New Features:**
 - **Tab 1: New Analysis** - Original fraud detection interface
 - **Tab 2: Analysis History** - View past analyses with:
+   - Analyzer / user who ran the analysis
   - Analysis metadata (date, stats)
   - Download original input file
   - Download generated report
@@ -92,10 +95,10 @@ streamlit run app.py
 ```
 
 ### 3. **First-Time Use**
-- Go to "Sign Up" tab to create an account
-- Enter email and password (min 8 chars)
-- Login with credentials
-- Now you're authenticated!
+- Sign in with the seeded admin account
+- Create a new user from the admin panel
+- Share the one-time password with the user
+- The user logs in and is prompted to change their password
 
 ---
 
@@ -121,22 +124,23 @@ streamlit run app.py
 
 ## Key Features Implemented
 
-✅ **User Authentication**
+**User Authentication**
 - Email/password login (bcrypt hashed)
-- Account creation
+- Admin-created accounts
+- Forced first-login password change
 - Session-based access control
 
-✅ **Analysis Persistence**
+**Analysis Persistence**
 - Store analysis metadata (date, filename, stats)
 - Serialize results to JSON for later retrieval
 - Link input files and report files to each analysis
 
-✅ **File Management**
+**File Management**
 - Store uploaded files securely by user
 - Store generated reports with timestamp
 - Prevent access to other users' files
 
-✅ **Audit Trail**
+**Audit Trail**
 - Created_at timestamps on all records
 - User ownership verification
 - File integrity (path tracking)
@@ -152,15 +156,14 @@ streamlit run app.py
 
 ## Security Notes
 
-### ✅ Implemented
+### Implemented
 - Passwords hashed with bcrypt (not stored plaintext)
 - User ownership verification (can't access other users' files)
 - Session state per browser
 
-### ⚠️ Future Improvements (Phase 2)
+### Future Improvements (Phase 2)
 - CSRF protection (Streamlit sessions)
 - Rate limiting on login attempts
-- Email verification for signups
 - Role-based access (analyst, admin, compliance)
 - Audit logging for compliance
 - Data encryption at rest
@@ -172,17 +175,20 @@ streamlit run app.py
 
 ### Quick Test
 ```bash
-python3 -c "from src.database import init_db; init_db(); print('✅ DB OK')"
+python3 -c "from src.database import init_db; init_db(); print('DB OK')"
 ```
 
 ### Manual Test Flow
-1. Sign up with test@example.com / Password123
-2. Upload a sample CSV
-3. Run fraud detection
-4. Save analysis
-5. Go to History tab
-6. Verify all files download correctly
-7. Check `fraud_detection.db` for records
+1. Log in as the seeded admin user
+2. Create a new user account
+3. Log in as the new user
+4. Change the temporary password on first login
+5. Upload a sample CSV
+6. Run fraud detection
+7. Save analysis
+8. Go to History tab
+9. Verify all files download correctly
+10. Check `fraud_detection.db` for records
 
 ---
 
@@ -252,4 +258,4 @@ fraud-detection-system/
 
 ---
 
-Generated: Phase 1 Complete ✅
+Generated: Phase 1 Complete
