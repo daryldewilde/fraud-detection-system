@@ -1,7 +1,0 @@
-Agent,Service,Amount,Status,Paid At
-D001,cashin,1000,SUCCESS,2026-03-07 09:00:00
-D001,cashout,-25,FAILED,2026-03-07 09:05:00
-,airtime,500,SUCCESS,2026-03-07 09:08:00
-D002,transfer,not_a_number,SUCCESS,2026-03-07 09:12:00
-D002,cashout,700,FAILED,invalid_date
-D003,cashin,300,SUCCESS,2026-03-07 10:00:00

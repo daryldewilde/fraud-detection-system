@@ -1,4 +1,0 @@
-Agent,hour,is_suspicious,risk_score,reasons,details
-A100,2026-03-27 10:00:00,True,0.8,High transaction velocity; High failure ratio; Repeated transaction chain with similar amounts,"tx_count=70, fail_ratio=0.50, avg_amount=1040.00, max_amount=1080.00"
-A200,2026-03-27 11:00:00,False,0.2,Cashout followed by immediate cashin/transfer with similar amount; Repeated transaction chain with similar amounts,"tx_count=16, fail_ratio=0.00, avg_amount=5010.00, max_amount=5020.00"
-A300,2026-03-27 12:00:00,False,0.15,Suspicious service concentration,"tx_count=30, fail_ratio=0.00, avg_amount=314.50, max_amount=329.00"
