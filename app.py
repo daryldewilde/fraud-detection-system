@@ -144,6 +144,173 @@ def inject_table_border_css() -> None:
     )
 
 
+def build_display_report(report: pd.DataFrame) -> pd.DataFrame:
+    """Create the display-friendly fraud report used by the UI."""
+    display_report = report.copy()
+    display_report["Reason"] = display_report["reasons"].apply(to_plain_reason)
+    display_report["Key details"] = display_report.apply(
+        lambda row: (
+            f"Transactions: {int(row['tx_count'])}, "
+            f"Failed: {int(row['fail_count'])}, "
+            f"Avg amount: {float(row['avg_amount']):.2f}, "
+            f"Max amount: {float(row['max_amount']):.2f}"
+        ),
+        axis=1,
+    )
+    return display_report
+
+
+def render_analysis_bundle(transactions: pd.DataFrame, report: pd.DataFrame, include_save: bool = True) -> None:
+    """Render the complete analysis results bundle: summary, table, charts, and downloads."""
+    display_report = build_display_report(report)
+
+    st.session_state.analysis_display_report_df = display_report.copy()
+
+    st.divider()
+    st.subheader("4. Results")
+
+    st.markdown("#### Summary table")
+    summary_df = pd.DataFrame(
+        [
+            {
+                "Total transactions": int(len(transactions)),
+                "Suspicious cases": int(display_report["is_suspicious"].sum()),
+                "Average risk level": round(float(display_report["risk_score"].mean()), 3),
+            }
+        ]
+    )
+    st.dataframe(bordered_styler(summary_df.style), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Fraud results table")
+    st.caption("These are the most suspicious cases based on risk score")
+
+    filtered = display_report[display_report["is_suspicious"]].copy().sort_values(by="risk_score", ascending=False)
+    if filtered.empty:
+        st.warning("No suspicious activity detected")
+        filtered = filtered.copy()
+
+    results_table = filtered[["Agent", "hour", "risk_score", "Reason", "Key details"]].rename(
+        columns={
+            "hour": "Time",
+            "risk_score": "Risk level (0-1)",
+        }
+    )
+
+    styled_results_table = results_table.style.map(
+        risk_color_style,
+        subset=["Risk level (0-1)"],
+    )
+    st.dataframe(bordered_styler(styled_results_table), use_container_width=True)
+
+    st.markdown("#### Optional charts")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Transaction amount distribution")
+        fig, ax = plt.subplots(figsize=(7, 4))
+        ax.hist(transactions["Amount"], bins=30, color="#1f77b4", edgecolor="black")
+        ax.set_xlabel("Amount")
+        ax.set_ylabel("Frequency")
+        ax.set_title("Transaction Distribution")
+        st.pyplot(fig)
+        plt.close(fig)
+
+    with col2:
+        st.subheader("Failed Transaction Share")
+        feature_df = compute_hourly_agent_features(transactions)
+        fig2, ax2 = plt.subplots(figsize=(7, 4))
+        ax2.hist(feature_df["fail_ratio"], bins=20, color="#d62728", edgecolor="black")
+        ax2.set_xlabel("Failed transaction share")
+        ax2.set_ylabel("Count of Agent-Hour Windows")
+        ax2.set_title("Failed Transaction Share Distribution")
+        st.pyplot(fig2)
+        plt.close(fig2)
+
+    st.subheader("Download fraud report")
+
+    report_for_export = results_table.rename(
+        columns={
+            "Time": "Time",
+            "Risk level (0-1)": "Risk level",
+        }
+    ).copy()
+    report_for_export["Time"] = report_for_export["Time"].astype(str)
+    st.session_state.analysis_report_for_export_df = report_for_export.copy()
+
+    col_excel, col_pdf = st.columns(2)
+
+    with col_excel:
+        excel_data = dataframe_to_excel_bytes(report_for_export)
+        st.download_button(
+            label="Download Report (Excel)",
+            data=excel_data,
+            file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    with col_pdf:
+        pdf_data = dataframe_to_pdf_bytes(report_for_export)
+        st.download_button(
+            label="Download Report (PDF)",
+            data=pdf_data,
+            file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf",
+        )
+
+    if include_save:
+        if st.button("Save This Analysis", use_container_width=True):
+            try:
+                excel_bytes = dataframe_to_excel_bytes(report_for_export)
+                user_id = get_current_user_id() or getattr(st.session_state, "user_id", None)
+                filename = getattr(st.session_state, "uploaded_filename", None) or "unknown"
+
+                report_path = save_report_file(user_id or 0, 0, excel_bytes, "xlsx")
+                results_dict = report.to_dict(orient="records")
+                analysis = create_analysis(
+                    user_id=user_id,
+                    analyzer_email=get_current_user_email(),
+                    filename=filename,
+                    input_file_path=getattr(st.session_state, "input_file_path", ""),
+                    results_df=results_dict,
+                    total_rows=len(transactions),
+                    suspicious_count=int(display_report["is_suspicious"].sum()),
+                    avg_risk_score=float(display_report["risk_score"].mean()),
+                )
+
+                from src.database import update_analysis_report
+
+                update_analysis_report(analysis.id, report_path)
+
+                st.success(f"Analysis saved — ID: {analysis.id}")
+                st.balloons()
+            except Exception as e:
+                import traceback
+
+                tb = traceback.format_exc()
+                try:
+                    from pathlib import Path
+
+                    logp = Path("outputs") / "error_log.txt"
+                    logp.parent.mkdir(parents=True, exist_ok=True)
+                    with open(logp, "a") as lf:
+                        lf.write(f"[{datetime.now().isoformat()}] Error saving analysis:\n")
+                        lf.write(tb + "\n")
+                except Exception:
+                    pass
+                st.error("Error saving analysis. See server logs for details.")
+                st.exception(e)
+
+    st.subheader("What this means")
+    st.markdown(
+        """
+    - Agents are flagged when their activity looks risky based on your settings.
+    - **Risk level** is a number from 0 to 1. Higher means more risk.
+    - Start by reviewing the highest risk rows, then check the reason and key details columns.
+    - If needed, lower or raise settings in the sidebar and run again.
+    """
+    )
+
+
 # Initialize database and storage on startup
 init_db()
 init_storage()
@@ -785,9 +952,10 @@ with tab2:
 
             if selected_analysis.results_json:
                 try:
-                    results_data = selected_analysis.get_results()
-                    details_df = pd.DataFrame(results_data)
-                    st.dataframe(bordered_styler(details_df.style), use_container_width=True)
+                    details_report = pd.DataFrame(selected_analysis.get_results())
+                    saved_transactions = load_transactions(selected_analysis.input_file_path)
+                    st.caption("Saved analysis rendered with the same summary, table, and charts as the original run.")
+                    render_analysis_bundle(saved_transactions, details_report, include_save=False)
                 except Exception as e:
                     st.error(f"Error showing details: {e}")
             else:
