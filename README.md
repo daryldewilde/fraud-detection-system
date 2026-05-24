@@ -32,7 +32,9 @@ It is designed for analysts, operations teams, and compliance users.
 - Password hashing with bcrypt
 - SQLite persistence of analyses
 - Re-download of original input files and reports
-- Analysis history with filtering, sorting, and pagination
+- Analysis history with filtering and pagination
+- Inline per-row details view that recreates the full analysis output
+- Saved details include the summary table, fraud table, charts, and download actions
 - User attribution and timestamps for audit trails
 
 ## Project Structure
@@ -116,13 +118,19 @@ pytest -q
 6. Human-readable explanations are generated.
 7. Results are displayed and exportable.
 8. Analysis can be saved with file/report paths and metrics.
+9. The saved analysis is available from History and can be opened inline with the same output bundle.
 
 ### History Workflow
 1. Open Analysis History.
 2. Filter by user/date.
 3. Review newest-to-oldest records.
-4. Page through records.
-5. Download input/report and inspect details.
+4. Page through records with a fixed default page size of 10.
+5. Open a row inline to view the summary, fraud table, charts, and downloads.
+6. Download input/report and inspect the saved results.
+
+### History Behavior Notes
+- If no analyses exist yet, the History tab shows a clear empty-state message instead of a blank page.
+- History details are rendered on the same page rather than a separate details page.
 
 ## Input Schema
 
@@ -231,6 +239,8 @@ Report fields include:
 - Risk level
 - Reason
 - Key details
+
+The analysis details view also recreates the summary metrics and charts shown immediately after a fresh run.
 
 Audit support:
 
