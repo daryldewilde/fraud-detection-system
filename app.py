@@ -1,7 +1,8 @@
 """Streamlit interface for the Explainable Fraud Detection System."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import secrets
+import math
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -20,7 +21,14 @@ from src.auth import (
 )
 from src.config import FraudConfig
 from src.data_loader import load_transactions
-from src.database import init_db, create_analysis, get_user_analyses, create_user, get_user_by_email
+from src.database import (
+    init_db,
+    create_analysis,
+    create_user,
+    get_user_by_email,
+    get_all_users,
+    get_filtered_analyses,
+)
 from src.detection import run_fraud_detection
 from src.feature_engineering import compute_hourly_agent_features
 from src.file_manager import init_storage, save_uploaded_file, save_report_file, get_file_bytes, file_exists, get_filename_from_path
@@ -41,7 +49,18 @@ def to_plain_reason(reason_text: str) -> str:
         "No suspicious indicators triggered": "no unusual activity was found",
     }
 
-    parts = [p.strip() for p in str(reason_text).split(";") if p.strip()]
+    if isinstance(reason_text, (list, tuple, set)):
+        raw_parts = [str(item).strip() for item in reason_text if str(item).strip()]
+    else:
+        normalized = str(reason_text).replace("[", "").replace("]", "").replace("'", "")
+        raw_parts = [p.strip() for p in normalized.split(";") if p.strip()]
+
+    parts = []
+    for item in raw_parts:
+        for piece in item.split(","):
+            cleaned = piece.strip()
+            if cleaned:
+                parts.append(cleaned)
     mapped = [reason_map.get(p, p.lower()) for p in parts]
 
     if not mapped:
@@ -71,6 +90,20 @@ def friendly_error_message(exc: Exception) -> str:
     return "We could not read this file. Please check the format and required columns, then try again."
 
 
+def risk_color_style(value: float) -> str:
+    """Return background style for risk score display."""
+    try:
+        risk_value = float(value)
+    except (TypeError, ValueError):
+        return ""
+
+    if risk_value >= 0.75:
+        return "background-color: #fde2e2; color: #8b0000;"
+    if risk_value >= 0.4:
+        return "background-color: #fff1dc; color: #a15c00;"
+    return "background-color: #e7f7ee; color: #0f5132;"
+
+
 # Initialize database and storage on startup
 init_db()
 init_storage()
@@ -90,7 +123,10 @@ if must_change_password():
 
 # Authenticated user - show main app
 st.title("Fraud Detection System")
-st.caption("Production-grade fraud detection with analysis history and audit trails.")
+st.caption(
+    "Analyze transaction files, detect suspicious activity, and manage analysis history in one place."
+)
+st.markdown("")
 
 # Sidebar: User info and logout
 with st.sidebar:
@@ -135,17 +171,27 @@ with st.sidebar:
 tab1, tab2 = st.tabs(["New Analysis", "Analysis History"])
 
 with tab1:
-    st.markdown(
-        """
-    ### How to use
-    1. **Upload file** using the uploader below.
-    2. **Adjust settings** in the left sidebar.
-    3. **View results and download fraud report** from the tables below.
-    """
-    )
+    st.subheader("1. Upload Data")
+    st.caption("Start by uploading a transaction history export in CSV or Excel format.")
 
     with st.sidebar:
         st.header("Settings")
+        st.caption("Adjust detection behavior before running the analysis.")
+
+        st.subheader("Preset")
+        selected_preset = st.radio(
+            "Profile",
+            options=["Balanced", "Conservative", "Aggressive"],
+            index=0,
+            help="Preset is a guidance label for your workflow. Threshold controls below remain fully manual.",
+        )
+        if selected_preset == "Conservative":
+            st.caption("Conservative: lower false positives, stricter flagging.")
+        elif selected_preset == "Aggressive":
+            st.caption("Aggressive: broader detection, may flag more cases.")
+        else:
+            st.caption("Balanced: standard sensitivity for day-to-day analysis.")
+
         st.subheader("Detection sensitivity")
 
         velocity_threshold = st.slider(
@@ -195,11 +241,14 @@ with tab1:
                 help="Uses an additional check to find behavior that looks unusual.",
             )
 
-    st.subheader("Step 1: Upload file")
-    uploaded_file = st.file_uploader("Upload transactions file (CSV or XLSX)", type=["csv", "xlsx"])
+    uploaded_file = st.file_uploader(
+        "Upload transactions file (CSV or XLSX)",
+        type=["csv", "xlsx"],
+        help="Upload a transaction history file exported from the application (CSV or Excel).",
+    )
 
     if uploaded_file is None:
-        st.info("Please upload a file to begin.")
+        st.info("Please upload a file to start analysis")
         st.stop()
 
     try:
@@ -211,11 +260,25 @@ with tab1:
         st.error(friendly_error_message(exc))
         st.stop()
 
-    st.subheader("File preview")
-    st.dataframe(transactions.head(200), use_container_width=True)
+    st.success("File loaded successfully")
+    st.caption(f"Rows loaded: {len(transactions)}")
+    st.divider()
 
-    st.subheader("Step 2: Adjust settings")
-    st.info("Use the left sidebar to adjust how strict the checks should be.")
+    st.subheader("2. Configure Analysis")
+    st.caption("Review a sample of uploaded data and confirm settings in the sidebar.")
+    st.markdown("")
+
+    st.markdown("#### File preview")
+    st.dataframe(transactions.head(200), use_container_width=True)
+    st.info("Use the sidebar controls to adjust how strict the checks should be.")
+
+    st.divider()
+    st.subheader("3. Run Analysis")
+    run_analysis = st.button("Run Fraud Analysis", use_container_width=True, type="primary")
+
+    if not run_analysis:
+        st.warning("Click 'Run Fraud Analysis' to process this file.")
+        st.stop()
 
     config = FraudConfig(
         velocity_threshold=velocity_threshold,
@@ -228,7 +291,7 @@ with tab1:
     with st.spinner("Analyzing transactions..."):
         report = run_fraud_detection(transactions, config=config, enable_anomaly=enable_anomaly)
 
-    st.success("Done! Results ready below.")
+    st.success("Analysis complete. Results are ready below.")
 
     display_report = report.copy()
     display_report["Reason"] = display_report["reasons"].apply(to_plain_reason)
@@ -242,7 +305,8 @@ with tab1:
         axis=1,
     )
 
-    st.subheader("Step 3: View results")
+    st.divider()
+    st.subheader("4. Results")
 
     st.markdown("#### Summary table")
     summary_df = pd.DataFrame(
@@ -257,12 +321,19 @@ with tab1:
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     st.markdown("#### Fraud results table")
+    st.caption("These are the most suspicious cases based on risk score")
     show_only_flagged = st.checkbox("Show only suspicious cases", value=True)
     min_risk_to_show = st.slider("Minimum risk level to show", 0.0, 1.0, 0.0, 0.01)
 
     filtered = display_report[display_report["risk_score"] >= min_risk_to_show].copy()
     if show_only_flagged:
         filtered = filtered[filtered["is_suspicious"]]
+
+    filtered = filtered.sort_values(by="risk_score", ascending=False)
+
+    if filtered.empty:
+        st.warning("No suspicious activity detected")
+        st.stop()
 
     results_table = filtered[["Agent", "hour", "risk_score", "Reason", "Key details"]].rename(
         columns={
@@ -271,7 +342,11 @@ with tab1:
         }
     )
 
-    st.dataframe(results_table, use_container_width=True)
+    styled_results_table = results_table.style.map(
+        risk_color_style,
+        subset=["Risk level (0-1)"],
+    )
+    st.dataframe(styled_results_table, use_container_width=True)
 
     st.markdown("#### Optional charts")
     col1, col2 = st.columns(2)
@@ -365,76 +440,187 @@ with tab1:
     )
 
 with tab2:
-    st.header("Analysis History")
-    st.markdown("View, download, and manage your past analyses.")
+    st.subheader("5. History")
+    st.caption("Review previous analyses, open details, and re-download reports.")
 
     user_id = get_current_user_id()
-    analyses = get_user_analyses(user_id)
+    current_role = get_current_user_role()
+
+    # Filters
+    with st.container(border=True):
+        st.subheader("Filters")
+        filter_col1, filter_col2, filter_col3 = st.columns([2, 2, 1])
+
+        selected_user_id = None
+        with filter_col1:
+            if current_role == "admin":
+                users = get_all_users()
+                user_options = {"All users": None}
+                for u in users:
+                    user_options[u.email] = u.id
+                selected_user_label = st.selectbox(
+                    "User",
+                    options=list(user_options.keys()),
+                    index=0,
+                )
+                selected_user_id = user_options[selected_user_label]
+            else:
+                st.text_input("User", value=str(get_current_user_email()), disabled=True)
+
+        with filter_col2:
+            date_preset = st.selectbox(
+                "Quick date filter",
+                options=["All dates", "Today", "Last 7 days", "Last 30 days"],
+                index=0,
+            )
+            date_range = st.date_input("Date range", value=())
+            start_date = None
+            end_date = None
+            if isinstance(date_range, tuple):
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                elif len(date_range) == 1:
+                    start_date = date_range[0]
+                    end_date = date_range[0]
+            else:
+                start_date = date_range
+                end_date = date_range
+
+            today = datetime.now().date()
+            if date_preset == "Today":
+                start_date = today
+                end_date = today
+            elif date_preset == "Last 7 days":
+                start_date = today - timedelta(days=6)
+                end_date = today
+            elif date_preset == "Last 30 days":
+                start_date = today - timedelta(days=29)
+                end_date = today
+
+        with filter_col3:
+            page_size = st.selectbox("Rows per page", options=[5, 10, 20, 50], index=1)
+
+    # Count first to build proper pagination bounds
+    _, total_count = get_filtered_analyses(
+        requesting_user_id=user_id,
+        requesting_user_role=current_role,
+        filter_user_id=selected_user_id,
+        start_date=start_date,
+        end_date=end_date,
+        page=1,
+        page_size=1,
+    )
+
+    total_pages = max(1, math.ceil(total_count / page_size))
+
+    pagination_col1, pagination_col2, pagination_col3 = st.columns([1, 1, 2])
+    with pagination_col1:
+        current_page = st.number_input(
+            "Page",
+            min_value=1,
+            max_value=total_pages,
+            value=1,
+            step=1,
+        )
+    with pagination_col2:
+        st.markdown(f"**of {total_pages}**")
+    with pagination_col3:
+        st.caption(f"Showing newest first. Total records: {total_count}")
+
+    analyses, _ = get_filtered_analyses(
+        requesting_user_id=user_id,
+        requesting_user_role=current_role,
+        filter_user_id=selected_user_id,
+        start_date=start_date,
+        end_date=end_date,
+        page=int(current_page),
+        page_size=page_size,
+    )
 
     if not analyses:
         st.info("No analyses yet. Go to the 'New Analysis' tab to create one.")
     else:
-        st.markdown(f"Found **{len(analyses)}** analysis records")
+        start_idx = (int(current_page) - 1) * page_size + 1
+        end_idx = start_idx + len(analyses) - 1
+        st.markdown(f"Showing **{start_idx}-{end_idx}** of **{total_count}** analysis records")
 
+        history_rows = []
+        analyses_by_id = {}
         for analysis in analyses:
-            with st.container(border=True):
-                col1, col2, col3 = st.columns([2, 1, 1])
+            displayed_user = analysis.analyzer_email or (analysis.user.email if analysis.user else "Unknown")
+            history_rows.append(
+                {
+                    "Analysis ID": analysis.id,
+                    "Date": analysis.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "User": displayed_user,
+                    "Transactions": int(analysis.total_rows or 0),
+                    "Suspicious": int(analysis.suspicious_count or 0),
+                    "Average Risk": round(float(analysis.avg_risk_score or 0.0), 3),
+                    "File": analysis.filename,
+                }
+            )
+            analyses_by_id[analysis.id] = analysis
 
-                with col1:
-                    st.markdown(f"**{analysis.filename}**")
-                    st.caption(f"Analyzed: {analysis.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
-                    if analysis.analyzer_email:
-                        st.caption(f"Analyzer: {analysis.analyzer_email}")
+        history_table_df = pd.DataFrame(history_rows)
+        st.dataframe(history_table_df, use_container_width=True, hide_index=True)
 
-                    if analysis.total_rows:
-                        st.markdown(
-                            f"{analysis.total_rows} transactions | "
-                            f"{analysis.suspicious_count} flagged | "
-                            f"Avg risk: {analysis.avg_risk_score:.2f}"
-                        )
+        selected_analysis_id = st.selectbox(
+            "Select analysis",
+            options=history_table_df["Analysis ID"].tolist(),
+            format_func=lambda aid: (
+                f"Analysis #{aid} | {analyses_by_id[aid].created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+            ),
+        )
+        selected_analysis = analyses_by_id[selected_analysis_id]
 
-                with col2:
-                    st.markdown("**Downloads**")
-                    
-                    # Download input file
-                    if file_exists(analysis.input_file_path):
-                        try:
-                            file_bytes = get_file_bytes(analysis.input_file_path)
-                            st.download_button(
-                                label="Input File",
-                                data=file_bytes,
-                                file_name=get_filename_from_path(analysis.input_file_path),
-                                key=f"input_{analysis.id}",
-                            )
-                        except Exception as e:
-                            st.error(f"Error loading file: {str(e)}")
-                    else:
-                        st.warning("Input file not found")
+        action_col1, action_col2, action_col3 = st.columns([1, 1, 2])
 
-                with col3:
-                    st.markdown("**Report**")
-                    
-                    # Download report
-                    if analysis.report_file_path and file_exists(analysis.report_file_path):
-                        try:
-                            file_bytes = get_file_bytes(analysis.report_file_path)
-                            st.download_button(
-                                label="Report",
-                                data=file_bytes,
-                                file_name=get_filename_from_path(analysis.report_file_path),
-                                key=f"report_{analysis.id}",
-                            )
-                        except Exception as e:
-                            st.error(f"Error loading report: {str(e)}")
-                    else:
-                        st.warning("Report not ready")
+        with action_col1:
+            view_details = st.button("View Details", use_container_width=True)
 
-                # Expandable results details
-                with st.expander(f"View full results (Analysis #{analysis.id})"):
-                    if analysis.results_json:
-                        results_data = analysis.get_results()
-                        results_df = pd.DataFrame(results_data)
-                        st.dataframe(results_df, use_container_width=True)
-                    else:
-                        st.info("No results data available")
+        with action_col2:
+            if selected_analysis.report_file_path and file_exists(selected_analysis.report_file_path):
+                try:
+                    report_bytes = get_file_bytes(selected_analysis.report_file_path)
+                    st.download_button(
+                        label="Download Report",
+                        data=report_bytes,
+                        file_name=get_filename_from_path(selected_analysis.report_file_path),
+                        key=f"download_report_{selected_analysis.id}",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    st.error(f"Error loading report: {str(e)}")
+            else:
+                st.warning("Report not ready")
+
+        with action_col3:
+            if file_exists(selected_analysis.input_file_path):
+                try:
+                    input_bytes = get_file_bytes(selected_analysis.input_file_path)
+                    st.download_button(
+                        label="Download Input File",
+                        data=input_bytes,
+                        file_name=get_filename_from_path(selected_analysis.input_file_path),
+                        key=f"download_input_{selected_analysis.id}",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    st.error(f"Error loading input file: {str(e)}")
+            else:
+                st.warning("Input file not found")
+
+        if view_details:
+            st.markdown("#### Selected analysis details")
+            selected_user = selected_analysis.analyzer_email or (
+                selected_analysis.user.email if selected_analysis.user else "Unknown"
+            )
+            st.caption(f"User: {selected_user}")
+            st.caption(f"Analysis Date: {selected_analysis.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+            if selected_analysis.results_json:
+                results_data = selected_analysis.get_results()
+                details_df = pd.DataFrame(results_data)
+                st.dataframe(details_df, use_container_width=True)
+            else:
+                st.info("No results data available")
 

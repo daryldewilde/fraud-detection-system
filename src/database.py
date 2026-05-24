@@ -2,13 +2,13 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 import bcrypt
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, Boolean, Text, ForeignKey, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import sessionmaker, Session, relationship, joinedload
 
 # Database setup
 DB_PATH = Path(__file__).parent.parent / "fraud_detection.db"
@@ -264,6 +264,60 @@ def get_user_analyses(user_id: int) -> list[Analysis]:
     db = SessionLocal()
     try:
         return db.query(Analysis).filter(Analysis.user_id == user_id).order_by(Analysis.created_at.desc()).all()
+    finally:
+        db.close()
+
+
+def get_all_users() -> list[User]:
+    """Get all users ordered by email."""
+    db = SessionLocal()
+    try:
+        return db.query(User).order_by(User.email.asc()).all()
+    finally:
+        db.close()
+
+
+def get_filtered_analyses(
+    requesting_user_id: int,
+    requesting_user_role: str | None,
+    filter_user_id: int | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> tuple[list[Analysis], int]:
+    """Get filtered analysis records with pagination, newest first."""
+    db = SessionLocal()
+    try:
+        query = db.query(Analysis).options(joinedload(Analysis.user))
+
+        if requesting_user_role == "admin":
+            if filter_user_id is not None:
+                query = query.filter(Analysis.user_id == filter_user_id)
+        else:
+            query = query.filter(Analysis.user_id == requesting_user_id)
+
+        if start_date is not None:
+            start_dt = datetime.combine(start_date, time.min)
+            query = query.filter(Analysis.created_at >= start_dt)
+
+        if end_date is not None:
+            end_dt = datetime.combine(end_date, time.max)
+            query = query.filter(Analysis.created_at <= end_dt)
+
+        total_count = query.count()
+
+        safe_page = max(page, 1)
+        safe_page_size = max(page_size, 1)
+        offset = (safe_page - 1) * safe_page_size
+
+        analyses = (
+            query.order_by(Analysis.created_at.desc())
+            .offset(offset)
+            .limit(safe_page_size)
+            .all()
+        )
+        return analyses, total_count
     finally:
         db.close()
 

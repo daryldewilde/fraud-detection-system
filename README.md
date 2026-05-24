@@ -1,165 +1,298 @@
 # Explainable Fraud Detection System
 
-Production-ready fintech fraud detection platform with user authentication, analysis persistence, and audit trails.
+Production-ready fraud detection platform with authentication, analysis history, and explainable risk scoring.
+
+## What This Project Does
+
+The system analyzes transaction data and detects suspicious behavior by combining:
+
+- Rule checks
+- Pattern checks
+- Anomaly detection
+- Weighted risk scoring
+- Plain-language explanations
+
+It is designed for analysts, operations teams, and compliance users.
 
 ## Features
 
-**Core Detection:**
-- Data ingestion from CSV and XLSX exports
-- Data normalization and validation
+### Core Detection
+- CSV/XLSX ingestion with validation and cleaning
 - Per-agent, per-hour feature engineering
-- Multi-layered fraud detection:
+- Multi-layer detection:
   - Rule-based signals (velocity, failure ratio, service concentration)
-  - Pattern detection (cashout → immediate cashin/transfer, repeated similar-amount chains)
+  - Sequence/pattern checks (cashout then quick movement, repeated similar-amount chains)
   - Isolation Forest anomaly detection
-- Weighted risk scoring in range [0, 1]
-- Human-readable explanations and metric details for each detection
+- Risk score in range `[0, 1]`
+- Human-readable reasons and investigation details
 
-**User Management & History (Phase 1):**
-- Admin-created user accounts with email/password login
-- Default admin account can create new users after login
-- First-login password change required for newly created users
-- Analysis persistence to SQLite database
-- View complete history of all past analyses
-- Re-download original input files
-- Re-download generated reports (Excel/PDF)
-- Audit trail with timestamps
+### User Management and History
+- Admin-created user accounts
+- First-login password change enforcement
+- Password hashing with bcrypt
+- SQLite persistence of analyses
+- Re-download of original input files and reports
+- Analysis history with filtering, sorting, and pagination
+- User attribution and timestamps for audit trails
 
 ## Project Structure
 
 ```
-├── app.py                          # Main Streamlit app (auth + tabs)
-├── fraud_detection.db              # SQLite database (auto-created)
-├── requirements.txt                # Dependencies including sqlalchemy, bcrypt
-│
+fraud-detection-system/
+├── app.py
+├── fraud_detection.db
+├── .env
+├── requirements.txt
 ├── src/
-│   ├── database.py                 # SQLAlchemy models (User, Analysis)
-│   ├── auth.py                     # Authentication & session management
-│   ├── file_manager.py             # File storage (uploads + reports)
-│   ├── detection.py                # Fraud detection engine
-│   ├── feature_engineering.py      # Feature calculations
-│   ├── scoring.py                  # Risk scoring
-│   ├── explainability.py           # Explanation generation
-│   ├── data_loader.py              # CSV/XLSX parsing
-│   ├── patterns.py                 # Pattern detection
-│   ├── config.py                   # Configuration
-│   └── utils.py                    # Utilities
-│
+│   ├── auth.py
+│   ├── config.py
+│   ├── data_loader.py
+│   ├── database.py
+│   ├── detection.py
+│   ├── explainability.py
+│   ├── feature_engineering.py
+│   ├── file_manager.py
+│   ├── patterns.py
+│   ├── scoring.py
+│   └── utils.py
 ├── data/
-│   ├── csv/                        # Sample CSVs
-│   ├── excel/                      # Sample Excel files
-│   └── uploads/user_*/             # User uploaded files (managed by app)
-│
+│   ├── csv/
+│   ├── excel/
+│   └── uploads/user_*/
 ├── outputs/
-│   └── reports/user_*/             # Generated reports (managed by app)
-│
-└── tests/                          # Unit tests
+│   └── reports/user_*/
+└── tests/
+```
+
+## Environment Configuration
+
+Configuration is now centralized in `.env`.
+
+### `.env` keys
+- `FRAUD_DETECTION_ADMIN_EMAIL`: seeded admin email
+- `FRAUD_DETECTION_ADMIN_PASSWORD`: seeded admin password
+
+Example (already created in this repo):
+
+```env
+FRAUD_DETECTION_ADMIN_EMAIL=admin@fraud.local
+FRAUD_DETECTION_ADMIN_PASSWORD=Admin@12345
 ```
 
 ## Setup
 
-1. Install dependencies:
+Install dependencies:
+
 ```bash
 pip install --break-system-packages -r requirements.txt
 ```
 
-2. Database is auto-initialized on first run (SQLite, no setup needed).
-
-## Run
+Run app:
 
 ```bash
 streamlit run app.py
 ```
 
-The app will:
-1. Show a login page on first visit
-2. Let the seeded admin sign in and create new users
-3. Force first-time users to change their password on initial login
-4. Preserve all analyses in database for future sessions
-
-## Input Schema
-
-Input CSV/XLSX must include:
-
-- **Agent** - Transaction originator identifier
-- **Service** - cashin, cashout, airtime, transfer, etc.
-- **Amount** - Transaction value
-- **Status** - SUCCESS or FAILED
-- **Paid At** - Transaction timestamp
-
-## Output Report
-
-Generated report includes:
-
-- Agent
-- hour (time window)
-- is_suspicious (true/false)
-- risk_score (0-1 scale)
-- reasons (plain-language explanation)
-- details (metric breakdowns)
-
-Export formats:
-- Excel (.xlsx) - with formatting
-- PDF (.pdf) - for compliance
-
-All reports are saved to history for re-download.
-
-## User Interface
-
-### Tab 1: New Analysis
-1. Upload CSV/XLSX file
-2. Adjust sensitivity thresholds (left sidebar)
-3. View real-time fraud detection results
-4. Download report immediately
-5. Click **Save This Analysis** to persist to history
-
-### Tab 2: Analysis History
-- List all past analyses with statistics
-- Show the analyser for each analysis record
-- **Re-download input file** - Access original data anytime
-- **Re-download report** - Retrieve generated Excel/PDF
-- **View results** - Expand to see full detection details
-- Organized by user account (secure access)
-
-### Admin Access
-- A default admin account is seeded on first run
-- The admin can create user accounts from the sidebar
-- New users receive a one-time password and must change it on first login
-
-## Test
+Run tests:
 
 ```bash
 pytest -q
 ```
 
-## Architecture
+## End-to-End Workflow
 
-**Database:**
-- SQLite for user and analysis persistence
-- SQLAlchemy ORM for data modeling
-- Auto-created on first run at `fraud_detection.db`
+### Authentication and Session
+1. Seeded admin logs in.
+2. Admin creates user accounts.
+3. New users are forced to change password at first login.
+4. Session identity is attached to actions.
 
-**Authentication:**
-- Admin-created accounts with email/password login
-- First-login password reset for newly created users
-- Bcrypt hashing for password security
-- Streamlit session state for access control
-- User ownership verification on all data access
+### Analysis Workflow
+1. Upload transaction file (CSV/XLSX).
+2. Data is cleaned and normalized.
+3. Hourly features are computed by agent.
+4. Fraud detection layers run.
+5. Risk score is computed.
+6. Human-readable explanations are generated.
+7. Results are displayed and exportable.
+8. Analysis can be saved with file/report paths and metrics.
 
-**File Management:**
-- Hybrid storage: files on disk, metadata in SQLite
-- User-segregated directories for privacy
-- Automatic file cleanup (optional)
+### History Workflow
+1. Open Analysis History.
+2. Filter by user/date.
+3. Review newest-to-oldest records.
+4. Page through records.
+5. Download input/report and inspect details.
 
-## Project Documentation
+## Input Schema
 
-- Full workflow and calculation guide: [PROJECT_WORKFLOW_AND_CALCULATIONS.md](PROJECT_WORKFLOW_AND_CALCULATIONS.md)
-- Phase 1 implementation details: [IMPLEMENTATION_PHASE1.md](IMPLEMENTATION_PHASE1.md)
+Input file must include:
 
-## Design Notes
+- `Agent`
+- `Service`
+- `Amount`
+- `Status`
+- `Paid At`
 
-- Configuration values are centralized in `src/config.py`
-- Explainability is implemented in `src/explainability.py`
-- The pipeline orchestration is implemented in `src/detection.py`
-- Database models and auth logic in `src/database.py` and `src/auth.py`
-- File storage management in `src/file_manager.py`
+## Data Cleaning
+
+Normalization pipeline:
+
+1. Map aliases to canonical columns.
+2. Normalize service casing.
+3. Normalize status casing.
+4. Coerce amount to numeric.
+5. Parse timestamp.
+6. Remove rows missing required fields.
+7. Remove negative amounts.
+8. Sort by event time.
+
+## Feature Engineering (Per Agent, Per Hour)
+
+For each `(Agent, hour)` window:
+
+- `tx_count`
+- `success_count`
+- `fail_count`
+- `fail_ratio`
+- `avg_amount`
+- `max_amount`
+
+Formulas:
+
+- $tx\_count = N$
+- $success\_count = \sum 1[Status=SUCCESS]$
+- $fail\_count = \sum 1[Status\neq SUCCESS]$
+- $fail\_ratio = fail\_count / tx\_count$
+- $avg\_amount = \frac{1}{N}\sum Amount$
+- $max\_amount = \max(Amount)$
+
+## Detection Layers
+
+### Layer A: Rule-Based
+Default checks:
+
+- Velocity: `tx_count >= velocity_threshold` (default `50`)
+- Failure ratio: `fail_ratio >= failure_ratio_threshold` (default `0.35`)
+- Service concentration: `dominant_service_ratio >= service_concentration_threshold` (default `0.9`)
+
+### Layer B: Pattern-Based
+- Cashout followed by quick cashin/transfer with similar amount
+- Repeated similar-amount chains
+
+### Layer C: Anomaly Detection
+Isolation Forest on:
+
+- `tx_count`
+- `success_count`
+- `fail_count`
+- `fail_ratio`
+- `avg_amount`
+- `max_amount`
+
+Defaults:
+
+- Contamination: `0.08`
+- Minimum rows: `12`
+
+## Risk Scoring
+
+Default weights:
+
+- Velocity: `0.30`
+- Failure: `0.30`
+- Anomaly: `0.40`
+- Pattern: `0.20`
+- Service concentration: `0.15`
+
+Formula:
+
+$$
+risk = (velocity\_flag\times0.30)
++ (failure\_flag\times0.30)
++ (anomaly\_flag\times0.40)
++ (pattern\_flag\times0.20)
++ (service\_distribution\_flag\times0.15)
+$$
+
+Then clipped to `[0, 1]`.
+
+Suspicious decision:
+
+- `is_suspicious = (risk > risk_threshold)`
+- Default `risk_threshold = 0.6`
+
+## Output and Auditability
+
+Report fields include:
+
+- Agent
+- Time
+- Risk level
+- Reason
+- Key details
+
+Audit support:
+
+- User attribution (`user_id` and analyzer email)
+- Timestamps
+- Original input retention
+- Report retention and linkage to analysis records
+
+## Database Overview
+
+### `users`
+- `id`
+- `email`
+- `password_hash`
+- `created_at`
+- `is_active`
+- `role`
+- `force_password_change`
+
+### `analyses`
+- `id`
+- `user_id`
+- `analyzer_email`
+- `filename`
+- `input_file_path`
+- `report_file_path`
+- `results_json`
+- `created_at`
+- `total_rows`
+- `suspicious_count`
+- `avg_risk_score`
+
+## Security Notes
+
+Implemented:
+
+- Bcrypt password hashing
+- User-scoped access checks
+- Session-based authentication
+- File path ownership model
+
+Future enhancements:
+
+- Rate limiting
+- Session timeout policies
+- Extended audit event logs
+- Encryption at rest
+
+## Troubleshooting
+
+`ModuleNotFoundError: sqlalchemy` or `dotenv`:
+
+```bash
+pip install --break-system-packages -r requirements.txt
+```
+
+`Database is locked`:
+
+- Stop duplicate app processes
+- Restart Streamlit app
+
+Cannot log in:
+
+- Verify admin credentials in `.env`
+- Re-run app to trigger DB init and admin seed
