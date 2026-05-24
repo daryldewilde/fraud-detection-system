@@ -104,6 +104,46 @@ def risk_color_style(value: float) -> str:
     return "background-color: #e7f7ee; color: #0f5132;"
 
 
+TABLE_BORDER_STYLES = [
+    {"selector": "table", "props": [("border-collapse", "collapse"), ("width", "100%"), ("border", "1px solid #d1d5db")]},
+    {"selector": "th", "props": [("border", "1px solid #d1d5db"), ("padding", "0.5rem"), ("background-color", "#f8fafc")]},
+    {"selector": "td", "props": [("border", "1px solid #d1d5db"), ("padding", "0.5rem")]},
+]
+
+
+def bordered_styler(styler):
+    """Apply consistent table borders to pandas Styler objects."""
+    return styler.set_table_styles(TABLE_BORDER_STYLES, overwrite=False)
+
+
+def inject_table_border_css() -> None:
+    """Inject CSS so Streamlit-rendered tables and row grids show visible borders."""
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTable"] table {
+            border-collapse: collapse !important;
+            width: 100% !important;
+        }
+        div[data-testid="stTable"] th,
+        div[data-testid="stTable"] td {
+            border: 1px solid #d1d5db !important;
+            padding: 0.5rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            border-right: 1px solid #d1d5db;
+            border-bottom: 1px solid #d1d5db;
+            padding: 0.4rem 0.5rem;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+            border-left: 1px solid #d1d5db;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # Initialize database and storage on startup
 init_db()
 init_storage()
@@ -111,6 +151,7 @@ init_session_state()
 
 # Page config
 st.set_page_config(page_title="Explainable Fraud Detection System", layout="wide")
+inject_table_border_css()
 
 # Check authentication
 if not require_auth():
@@ -179,12 +220,50 @@ with tab1:
         st.caption("Adjust detection behavior before running the analysis.")
 
         st.subheader("Preset")
+        # Preset profiles that map to sensible default control values
+        preset_defaults = {
+            "Balanced": {
+                "velocity_threshold": 50,
+                "failure_ratio_threshold": 0.35,
+                "risk_threshold": 0.6,
+                "service_concentration_threshold": 0.9,
+                "pattern_weight": 0.2,
+                "enable_anomaly": True,
+            },
+            "Conservative": {
+                "velocity_threshold": 20,
+                "failure_ratio_threshold": 0.15,
+                "risk_threshold": 0.75,
+                "service_concentration_threshold": 0.95,
+                "pattern_weight": 0.1,
+                "enable_anomaly": False,
+            },
+            "Aggressive": {
+                "velocity_threshold": 120,
+                "failure_ratio_threshold": 0.45,
+                "risk_threshold": 0.45,
+                "service_concentration_threshold": 0.8,
+                "pattern_weight": 0.35,
+                "enable_anomaly": True,
+            },
+        }
+
         selected_preset = st.radio(
             "Profile",
             options=["Balanced", "Conservative", "Aggressive"],
             index=0,
             help="Preset is a guidance label for your workflow. Threshold controls below remain fully manual.",
         )
+
+        # Initialize or update session state values when preset changes
+        if "preset_selected" not in st.session_state:
+            st.session_state.preset_selected = selected_preset
+        if st.session_state.preset_selected != selected_preset:
+            # apply defaults from selected preset into session_state so sliders update
+            defaults = preset_defaults.get(selected_preset, {})
+            for k, v in defaults.items():
+                st.session_state[k] = v
+            st.session_state.preset_selected = selected_preset
         if selected_preset == "Conservative":
             st.caption("Conservative: lower false positives, stricter flagging.")
         elif selected_preset == "Aggressive":
@@ -198,14 +277,20 @@ with tab1:
             "Max transactions per hour",
             min_value=5,
             max_value=500,
-            value=50,
+            value=st.session_state.get(
+                "velocity_threshold", preset_defaults[selected_preset]["velocity_threshold"]
+            ),
+            key="velocity_threshold",
             help="Flag activity when one agent has more than this number of transactions in an hour.",
         )
         failure_ratio_threshold = st.slider(
             "Failed transactions limit",
             min_value=0.0,
             max_value=1.0,
-            value=0.35,
+            value=st.session_state.get(
+                "failure_ratio_threshold", preset_defaults[selected_preset]["failure_ratio_threshold"]
+            ),
+            key="failure_ratio_threshold",
             step=0.01,
             help="Flag activity when the failed transaction share is above this limit.",
         )
@@ -213,7 +298,10 @@ with tab1:
             "Risk level to flag",
             min_value=0.0,
             max_value=1.0,
-            value=0.6,
+            value=st.session_state.get(
+                "risk_threshold", preset_defaults[selected_preset]["risk_threshold"]
+            ),
+            key="risk_threshold",
             step=0.01,
             help="Cases above this risk level are marked as suspicious.",
         )
@@ -223,7 +311,11 @@ with tab1:
                 "Same transaction type limit",
                 min_value=0.5,
                 max_value=1.0,
-                value=0.9,
+                value=st.session_state.get(
+                    "service_concentration_threshold",
+                    preset_defaults[selected_preset]["service_concentration_threshold"],
+                ),
+                key="service_concentration_threshold",
                 step=0.01,
                 help="Flag activity when almost all transactions are the same type.",
             )
@@ -231,13 +323,19 @@ with tab1:
                 "Repeated pattern impact",
                 min_value=0.0,
                 max_value=0.5,
-                value=0.2,
+                value=st.session_state.get(
+                    "pattern_weight", preset_defaults[selected_preset]["pattern_weight"]
+                ),
+                key="pattern_weight",
                 step=0.01,
                 help="Increase this to give more weight to repeating transaction patterns.",
             )
             enable_anomaly = st.checkbox(
                 "Detect unusual activity",
-                value=True,
+                value=st.session_state.get(
+                    "enable_anomaly", preset_defaults[selected_preset]["enable_anomaly"]
+                ),
+                key="enable_anomaly",
                 help="Uses an additional check to find behavior that looks unusual.",
             )
 
@@ -256,6 +354,12 @@ with tab1:
             transactions = load_transactions(uploaded_file)
             # Save uploaded file
             input_file_path = save_uploaded_file(get_current_user_id(), uploaded_file)
+            # persist file info across reruns
+            previous_filename = st.session_state.get("uploaded_filename")
+            st.session_state.uploaded_filename = uploaded_file.name
+            st.session_state.input_file_path = input_file_path
+            if previous_filename != uploaded_file.name:
+                st.session_state.analysis_ready = False
     except Exception as exc:
         st.error(friendly_error_message(exc))
         st.stop()
@@ -276,22 +380,39 @@ with tab1:
     st.subheader("3. Run Analysis")
     run_analysis = st.button("Run Fraud Analysis", use_container_width=True, type="primary")
 
-    if not run_analysis:
+    analysis_ready = bool(st.session_state.get("analysis_ready"))
+
+    if run_analysis:
+        config = FraudConfig(
+            velocity_threshold=velocity_threshold,
+            failure_ratio_threshold=failure_ratio_threshold,
+            service_concentration_threshold=service_concentration_threshold,
+            risk_threshold=risk_threshold,
+            pattern_weight=pattern_weight,
+        )
+
+        with st.spinner("Analyzing transactions..."):
+            report = run_fraud_detection(transactions, config=config, enable_anomaly=enable_anomaly)
+
+        st.success("Analysis complete. Results are ready below.")
+        analysis_ready = True
+
+        # persist results in session_state so Save works after reruns
+        st.session_state.analysis_ready = True
+        st.session_state.analysis_transactions_df = transactions.copy()
+        st.session_state.analysis_report_df = report.copy()
+        st.session_state.analysis_display_report_df = report.copy()
+        st.session_state.analysis_report_for_export_df = None
+    elif not analysis_ready:
         st.warning("Click 'Run Fraud Analysis' to process this file.")
         st.stop()
 
-    config = FraudConfig(
-        velocity_threshold=velocity_threshold,
-        failure_ratio_threshold=failure_ratio_threshold,
-        service_concentration_threshold=service_concentration_threshold,
-        risk_threshold=risk_threshold,
-        pattern_weight=pattern_weight,
-    )
+    if not run_analysis and analysis_ready:
+        transactions = st.session_state.analysis_transactions_df.copy()
+        report = st.session_state.analysis_report_df.copy()
 
-    with st.spinner("Analyzing transactions..."):
-        report = run_fraud_detection(transactions, config=config, enable_anomaly=enable_anomaly)
-
-    st.success("Analysis complete. Results are ready below.")
+    if "report" not in locals():
+        st.stop()
 
     display_report = report.copy()
     display_report["Reason"] = display_report["reasons"].apply(to_plain_reason)
@@ -304,6 +425,9 @@ with tab1:
         ),
         axis=1,
     )
+
+    st.session_state.analysis_display_report_df = display_report.copy()
+    st.session_state.analysis_report_for_export_df = None
 
     st.divider()
     st.subheader("4. Results")
@@ -318,7 +442,7 @@ with tab1:
             }
         ]
     )
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    st.dataframe(bordered_styler(summary_df.style), use_container_width=True, hide_index=True)
 
     st.markdown("#### Fraud results table")
     st.caption("These are the most suspicious cases based on risk score")
@@ -333,7 +457,7 @@ with tab1:
 
     if filtered.empty:
         st.warning("No suspicious activity detected")
-        st.stop()
+        filtered = filtered.copy()
 
     results_table = filtered[["Agent", "hour", "risk_score", "Reason", "Key details"]].rename(
         columns={
@@ -346,7 +470,7 @@ with tab1:
         risk_color_style,
         subset=["Risk level (0-1)"],
     )
-    st.dataframe(styled_results_table, use_container_width=True)
+    st.dataframe(bordered_styler(styled_results_table), use_container_width=True)
 
     st.markdown("#### Optional charts")
     col1, col2 = st.columns(2)
@@ -379,6 +503,7 @@ with tab1:
         }
     ).copy()
     report_for_export["Time"] = report_for_export["Time"].astype(str)
+    st.session_state.analysis_report_for_export_df = report_for_export.copy()
 
     col_excel, col_pdf = st.columns(2)
 
@@ -404,20 +529,39 @@ with tab1:
     if st.button("Save This Analysis", use_container_width=True):
         try:
             # Save report files
+            # Rebuild export DataFrame if needed (protect against rerun state loss)
+            if "report_for_export" not in locals():
+                try:
+                    # Attempt to rebuild from display_report
+                    report_for_export = (
+                        display_report[["Agent", "hour", "risk_score", "reasons"]]
+                        .rename(columns={"hour": "Time", "risk_score": "Risk level"})
+                        .copy()
+                    )
+                    report_for_export["Time"] = report_for_export["Time"].astype(str)
+                except Exception:
+                    raise RuntimeError("Could not reconstruct report for export. Please re-run the analysis and try again.")
+
             excel_bytes = dataframe_to_excel_bytes(report_for_export)
-            report_path = save_report_file(get_current_user_id(), 0, excel_bytes, "xlsx")
+
+            user_id = get_current_user_id() or getattr(st.session_state, "user_id", None)
+            filename = getattr(st.session_state, "uploaded_filename", None) or (
+                uploaded_file.name if "uploaded_file" in locals() and uploaded_file is not None else "unknown"
+            )
+
+            report_path = save_report_file(user_id or 0, 0, excel_bytes, "xlsx")
 
             # Create analysis record
             results_dict = report.to_dict(orient="records")
             analysis = create_analysis(
-                user_id=get_current_user_id(),
+                user_id=user_id,
                 analyzer_email=get_current_user_email(),
-                filename=uploaded_file.name,
-                input_file_path=input_file_path,
+                filename=filename,
+                input_file_path=getattr(st.session_state, "input_file_path", input_file_path if "input_file_path" in locals() else ""),
                 results_df=results_dict,
-                total_rows=len(transactions),
-                suspicious_count=int(display_report["is_suspicious"].sum()),
-                avg_risk_score=float(display_report["risk_score"].mean()),
+                total_rows=(len(transactions) if "transactions" in locals() else None),
+                suspicious_count=int(display_report["is_suspicious"].sum()) if "display_report" in locals() else None,
+                avg_risk_score=float(display_report["risk_score"].mean()) if "display_report" in locals() else None,
             )
 
             # Update report path
@@ -427,7 +571,20 @@ with tab1:
             st.success(f"Analysis saved — ID: {analysis.id}")
             st.balloons()
         except Exception as e:
-            st.error(f"Error saving analysis: {str(e)}")
+            import traceback
+            tb = traceback.format_exc()
+            # write to a log file for debugging
+            try:
+                from pathlib import Path
+                logp = Path("outputs") / "error_log.txt"
+                logp.parent.mkdir(parents=True, exist_ok=True)
+                with open(logp, "a") as lf:
+                    lf.write(f"[{datetime.now().isoformat()}] Error saving analysis:\n")
+                    lf.write(tb + "\n")
+            except Exception:
+                pass
+            st.error("Error saving analysis. See server logs for details.")
+            st.exception(e)
 
     st.subheader("What this means")
     st.markdown(
@@ -449,7 +606,7 @@ with tab2:
     # Filters
     with st.container(border=True):
         st.subheader("Filters")
-        filter_col1, filter_col2, filter_col3 = st.columns([2, 2, 1])
+        filter_col1, filter_col2, filter_col3 = st.columns([2, 2, 2])
 
         selected_user_id = None
         with filter_col1:
@@ -473,6 +630,8 @@ with tab2:
                 options=["All dates", "Today", "Last 7 days", "Last 30 days"],
                 index=0,
             )
+
+        with filter_col3:
             date_range = st.date_input("Date range", value=())
             start_date = None
             end_date = None
@@ -497,8 +656,7 @@ with tab2:
                 start_date = today - timedelta(days=29)
                 end_date = today
 
-        with filter_col3:
-            page_size = st.selectbox("Rows per page", options=[5, 10, 20, 50], index=1)
+        page_size = 10
 
     # Count first to build proper pagination bounds
     _, total_count = get_filtered_analyses(
@@ -513,19 +671,8 @@ with tab2:
 
     total_pages = max(1, math.ceil(total_count / page_size))
 
-    pagination_col1, pagination_col2, pagination_col3 = st.columns([1, 1, 2])
-    with pagination_col1:
-        current_page = st.number_input(
-            "Page",
-            min_value=1,
-            max_value=total_pages,
-            value=1,
-            step=1,
-        )
-    with pagination_col2:
-        st.markdown(f"**of {total_pages}**")
-    with pagination_col3:
-        st.caption(f"Showing newest first. Total records: {total_count}")
+    current_page = min(max(1, int(st.session_state.get("history_page", 1))), total_pages)
+    st.session_state.history_page = current_page
 
     analyses, _ = get_filtered_analyses(
         requesting_user_id=user_id,
@@ -533,14 +680,15 @@ with tab2:
         filter_user_id=selected_user_id,
         start_date=start_date,
         end_date=end_date,
-        page=int(current_page),
+        page=current_page,
         page_size=page_size,
     )
 
     if not analyses:
         st.info("No analyses yet. Go to the 'New Analysis' tab to create one.")
     else:
-        start_idx = (int(current_page) - 1) * page_size + 1
+        selected_history_analysis_id = st.session_state.get("selected_history_analysis_id")
+        start_idx = (current_page - 1) * page_size + 1
         end_idx = start_idx + len(analyses) - 1
         st.markdown(f"Showing **{start_idx}-{end_idx}** of **{total_count}** analysis records")
 
@@ -561,66 +709,88 @@ with tab2:
             )
             analyses_by_id[analysis.id] = analysis
 
-        history_table_df = pd.DataFrame(history_rows)
-        st.dataframe(history_table_df, use_container_width=True, hide_index=True)
+        with st.container(border=True):
+            header_cols = st.columns([1.2, 1.8, 2.2, 1.2, 1.2, 1.4, 1.1])
+            header_cols[0].markdown("**Analysis ID**")
+            header_cols[1].markdown("**Date**")
+            header_cols[2].markdown("**User**")
+            header_cols[3].markdown("**Transactions**")
+            header_cols[4].markdown("**Suspicious**")
+            header_cols[5].markdown("**Average Risk**")
+            header_cols[6].markdown("**Action**")
 
-        selected_analysis_id = st.selectbox(
-            "Select analysis",
-            options=history_table_df["Analysis ID"].tolist(),
-            format_func=lambda aid: (
-                f"Analysis #{aid} | {analyses_by_id[aid].created_at.strftime('%Y-%m-%d %H:%M:%S')}"
-            ),
-        )
-        selected_analysis = analyses_by_id[selected_analysis_id]
+            for index, row in enumerate(history_rows):
+                analysis_id = row["Analysis ID"]
+                if index > 0:
+                    st.divider()
+                row_cols = st.columns([1.2, 1.8, 2.2, 1.2, 1.2, 1.4, 1.1])
+                row_cols[0].write(row["Analysis ID"])
+                row_cols[1].write(row["Date"])
+                row_cols[2].write(row["User"])
+                row_cols[3].write(row["Transactions"])
+                row_cols[4].write(row["Suspicious"])
+                row_cols[5].write(row["Average Risk"])
+                if row_cols[6].button("Show Details", key=f"show_details_{analysis_id}", use_container_width=True):
+                    st.session_state.selected_history_analysis_id = analysis_id
+                    selected_history_analysis_id = analysis_id
 
-        action_col1, action_col2, action_col3 = st.columns([1, 1, 2])
+        pagination_col1, pagination_col2 = st.columns([1, 2])
+        with pagination_col1:
+            st.selectbox("Page", options=list(range(1, total_pages + 1)), index=current_page - 1, key="history_page")
+        with pagination_col2:
+            st.caption(f"Showing newest first. Total records: {total_count}")
 
-        with action_col1:
-            view_details = st.button("View Details", use_container_width=True)
+        selected_analysis = analyses_by_id.get(selected_history_analysis_id)
 
-        with action_col2:
-            if selected_analysis.report_file_path and file_exists(selected_analysis.report_file_path):
-                try:
-                    report_bytes = get_file_bytes(selected_analysis.report_file_path)
-                    st.download_button(
-                        label="Download Report",
-                        data=report_bytes,
-                        file_name=get_filename_from_path(selected_analysis.report_file_path),
-                        key=f"download_report_{selected_analysis.id}",
-                        use_container_width=True,
-                    )
-                except Exception as e:
-                    st.error(f"Error loading report: {str(e)}")
-            else:
-                st.warning("Report not ready")
-
-        with action_col3:
-            if file_exists(selected_analysis.input_file_path):
-                try:
-                    input_bytes = get_file_bytes(selected_analysis.input_file_path)
-                    st.download_button(
-                        label="Download Input File",
-                        data=input_bytes,
-                        file_name=get_filename_from_path(selected_analysis.input_file_path),
-                        key=f"download_input_{selected_analysis.id}",
-                        use_container_width=True,
-                    )
-                except Exception as e:
-                    st.error(f"Error loading input file: {str(e)}")
-            else:
-                st.warning("Input file not found")
-
-        if view_details:
+        if selected_analysis:
+            st.divider()
             st.markdown("#### Selected analysis details")
             selected_user = selected_analysis.analyzer_email or (
                 selected_analysis.user.email if selected_analysis.user else "Unknown"
             )
             st.caption(f"User: {selected_user}")
             st.caption(f"Analysis Date: {selected_analysis.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            action_col1, action_col2 = st.columns(2)
+            with action_col1:
+                if selected_analysis.report_file_path and file_exists(selected_analysis.report_file_path):
+                    try:
+                        report_bytes = get_file_bytes(selected_analysis.report_file_path)
+                        st.download_button(
+                            label="Download Report",
+                            data=report_bytes,
+                            file_name=get_filename_from_path(selected_analysis.report_file_path),
+                            key=f"download_report_{selected_analysis.id}",
+                            use_container_width=True,
+                        )
+                    except Exception as e:
+                        st.error(f"Error loading report: {str(e)}")
+                else:
+                    st.warning("Report not ready")
+
+            with action_col2:
+                if file_exists(selected_analysis.input_file_path):
+                    try:
+                        input_bytes = get_file_bytes(selected_analysis.input_file_path)
+                        st.download_button(
+                            label="Download Input File",
+                            data=input_bytes,
+                            file_name=get_filename_from_path(selected_analysis.input_file_path),
+                            key=f"download_input_{selected_analysis.id}",
+                            use_container_width=True,
+                        )
+                    except Exception as e:
+                        st.error(f"Error loading input file: {str(e)}")
+                else:
+                    st.warning("Input file not found")
+
             if selected_analysis.results_json:
-                results_data = selected_analysis.get_results()
-                details_df = pd.DataFrame(results_data)
-                st.dataframe(details_df, use_container_width=True)
+                try:
+                    results_data = selected_analysis.get_results()
+                    details_df = pd.DataFrame(results_data)
+                    st.dataframe(bordered_styler(details_df.style), use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error showing details: {e}")
             else:
                 st.info("No results data available")
 
