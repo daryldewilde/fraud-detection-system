@@ -95,6 +95,23 @@ Run app:
 streamlit run app.py
 ```
 
+### Docker
+
+Build and run the app with Docker:
+
+```bash
+docker compose up --build
+```
+
+Then open `http://localhost:8501`.
+
+The container reads admin credentials from `.env` if present. If you want to run without Compose, use:
+
+```bash
+docker build -t fraud-detection-system .
+docker run --rm -p 8501:8501 --env-file .env fraud-detection-system
+```
+
 Run tests:
 
 ```bash
