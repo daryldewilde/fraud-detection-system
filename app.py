@@ -394,7 +394,6 @@ with tab1:
                 "failure_ratio_threshold": 0.35,
                 "risk_threshold": 0.6,
                 "service_concentration_threshold": 0.9,
-                "pattern_weight": 0.2,
                 "enable_anomaly": True,
             },
             "Conservative": {
@@ -402,7 +401,6 @@ with tab1:
                 "failure_ratio_threshold": 0.15,
                 "risk_threshold": 0.75,
                 "service_concentration_threshold": 0.95,
-                "pattern_weight": 0.1,
                 "enable_anomaly": False,
             },
             "Aggressive": {
@@ -410,7 +408,6 @@ with tab1:
                 "failure_ratio_threshold": 0.45,
                 "risk_threshold": 0.45,
                 "service_concentration_threshold": 0.8,
-                "pattern_weight": 0.35,
                 "enable_anomaly": True,
             },
         }
@@ -486,17 +483,6 @@ with tab1:
                 step=0.01,
                 help="Flag activity when almost all transactions are the same type.",
             )
-            pattern_weight = st.slider(
-                "Repeated pattern impact",
-                min_value=0.0,
-                max_value=0.5,
-                value=st.session_state.get(
-                    "pattern_weight", preset_defaults[selected_preset]["pattern_weight"]
-                ),
-                key="pattern_weight",
-                step=0.01,
-                help="Increase this to give more weight to repeating transaction patterns.",
-            )
             enable_anomaly = st.checkbox(
                 "Detect unusual activity",
                 value=st.session_state.get(
@@ -554,7 +540,6 @@ with tab1:
                 failure_ratio_threshold=failure_ratio_threshold,
                 service_concentration_threshold=service_concentration_threshold,
                 risk_threshold=risk_threshold,
-                pattern_weight=pattern_weight,
             )
 
             with st.spinner("Analyzing transactions..."):

@@ -1,16 +1,15 @@
 """Risk scoring logic for combining fraud signals."""
 
-import numpy as np
 import pandas as pd
 
 from .config import FraudConfig
 
 
 def compute_risk_scores(df: pd.DataFrame, config: FraudConfig) -> pd.DataFrame:
-    """Compute weighted risk score and suspicious classification."""
+    """Compute normalized risk score and suspicious classification."""
     scored = df.copy()
 
-    scored["risk_score"] = (
+    weighted_sum = (
         scored["velocity_flag"].astype(float) * config.velocity_weight
         + scored["failure_flag"].astype(float) * config.failure_weight
         + scored["anomaly_flag"].astype(float) * config.anomaly_weight
@@ -18,7 +17,18 @@ def compute_risk_scores(df: pd.DataFrame, config: FraudConfig) -> pd.DataFrame:
         + scored["service_distribution_flag"].astype(float) * config.service_distribution_weight
     )
 
-    scored["risk_score"] = np.clip(scored["risk_score"], 0.0, 1.0)
+    total_weight = (
+        config.velocity_weight
+        + config.failure_weight
+        + config.anomaly_weight
+        + config.pattern_weight
+        + config.service_distribution_weight
+    )
+
+    if total_weight <= 0:
+        raise ValueError("At least one risk weight must be positive.")
+
+    scored["risk_score"] = weighted_sum / total_weight
     scored["is_suspicious"] = scored["risk_score"] > config.risk_threshold
 
     return scored

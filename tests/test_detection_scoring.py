@@ -33,7 +33,7 @@ def test_detection_pipeline_flags_velocity_and_failure() -> None:
 
     assert bool(first["velocity_flag"]) is True
     assert bool(first["failure_flag"]) is True
-    assert float(first["risk_score"]) >= 0.6
+    assert abs(float(first["risk_score"]) - (0.75 / 1.35)) < 1e-9
     assert bool(first["is_suspicious"]) is True
     assert "High transaction velocity" in first["reasons"]
 

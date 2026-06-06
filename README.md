@@ -240,7 +240,7 @@ risk = (velocity\_flag\times0.30)
 + (service\_distribution\_flag\times0.15)
 $$
 
-Then clipped to `[0, 1]`.
+Then normalized by the total configured weight so the final score stays in `[0, 1]` without clipping.
 
 Suspicious decision:
 
