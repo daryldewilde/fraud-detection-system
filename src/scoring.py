@@ -17,7 +17,7 @@ def compute_risk_scores(df: pd.DataFrame, config: FraudConfig) -> pd.DataFrame:
         + scored["service_distribution_flag"].astype(float) * config.service_distribution_weight
     )
 
-    total_weight = (
+    base_total_weight = (
         config.velocity_weight
         + config.failure_weight
         + config.anomaly_weight
@@ -25,10 +25,19 @@ def compute_risk_scores(df: pd.DataFrame, config: FraudConfig) -> pd.DataFrame:
         + config.service_distribution_weight
     )
 
-    if total_weight <= 0:
+    if base_total_weight <= 0:
         raise ValueError("At least one risk weight must be positive.")
 
+    if "anomaly_applied" in scored.columns:
+        anomaly_applied = scored["anomaly_applied"].fillna(False).astype(bool)
+    else:
+        anomaly_applied = pd.Series(True, index=scored.index)
+
+    total_weight = base_total_weight - (~anomaly_applied).astype(float) * config.anomaly_weight
+    total_weight = total_weight.where(total_weight > 0)
+
     scored["risk_score"] = weighted_sum / total_weight
+    scored["risk_score"] = scored["risk_score"].fillna(0.0)
     scored["is_suspicious"] = scored["risk_score"] > config.risk_threshold
 
     return scored

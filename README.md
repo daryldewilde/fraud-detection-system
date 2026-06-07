@@ -23,7 +23,7 @@ It is designed for analysts, operations teams, and compliance users.
   - Rule-based signals (velocity, failure ratio, service concentration)
   - Sequence/pattern checks (cashout then quick movement, repeated similar-amount chains)
   - Isolation Forest anomaly detection
-- Risk score in range `[0, 1]`
+- Risk score normalized into range `[0, 1]` without clipping
 - Human-readable reasons and investigation details
 
 ### User Management and History
@@ -68,11 +68,13 @@ fraud-detection-system/
 
 ## Environment Configuration
 
-Configuration is now centralized in `.env`.
+Secret and deployment configuration is centralized in `.env`.
 
 ### `.env` keys
 - `FRAUD_DETECTION_ADMIN_EMAIL`: seeded admin email
 - `FRAUD_DETECTION_ADMIN_PASSWORD`: seeded admin password
+
+The analysis controls shown in the sidebar stay in the app UI so analysts can tune them during a run.
 
 Example (already created in this repo):
 
@@ -220,6 +222,11 @@ Defaults:
 - Contamination: `0.08`
 - Minimum rows: `12`
 
+Behavior:
+
+- If anomaly detection is switched off, or there are too few rows, anomaly is skipped for scoring.
+- In that case `anomaly_flag = False`, `anomaly_score = 0.0`, and `anomaly_applied = False`.
+
 ## Risk Scoring
 
 Default weights:
@@ -240,12 +247,24 @@ risk = (velocity\_flag\times0.30)
 + (service\_distribution\_flag\times0.15)
 $$
 
-Then normalized by the total configured weight so the final score stays in `[0, 1]` without clipping.
+Then normalized by the total applicable weight for that row so the final score stays in `[0, 1]` without clipping.
+
+If anomaly detection did not run for a row, the anomaly weight is excluded from that row's denominator.
 
 Suspicious decision:
 
 - `is_suspicious = (risk > risk_threshold)`
 - Default `risk_threshold = 0.6`
+
+Sidebar controls currently exposed:
+
+- `velocity_threshold`
+- `failure_ratio_threshold`
+- `service_concentration_threshold`
+- `risk_threshold`
+- `enable_anomaly`
+
+The pattern weight is kept in code as a default and is not shown in the sidebar.
 
 ## Output and Auditability
 
@@ -258,6 +277,8 @@ Report fields include:
 - Key details
 
 The analysis details view also recreates the summary metrics and charts shown immediately after a fresh run.
+
+The report also includes `anomaly_applied` so it is clear whether anomaly detection was actually used for each row.
 
 Audit support:
 

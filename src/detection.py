@@ -32,6 +32,9 @@ def _apply_anomaly_detection(
     """Apply Isolation Forest and append anomaly outputs."""
     with_anomaly = feature_df.copy()
 
+    # Track whether anomaly detection was actually applied for each row.
+    # This lets downstream scoring exclude the anomaly weight when detection wasn't run.
+    with_anomaly["anomaly_applied"] = False
     with_anomaly["anomaly_flag"] = False
     with_anomaly["anomaly_score"] = 0.0
 
@@ -62,6 +65,7 @@ def _apply_anomaly_detection(
 
     with_anomaly["anomaly_flag"] = predictions == -1
     with_anomaly["anomaly_score"] = np.clip(-raw_scores, 0.0, None)
+    with_anomaly["anomaly_applied"] = True
 
     return with_anomaly
 
@@ -109,6 +113,7 @@ def run_fraud_detection(
         "service_distribution_flag",
         "pattern_flag",
         "anomaly_flag",
+        "anomaly_applied",
     ]
 
     return explained[report_cols].sort_values(["risk_score", "Agent", "hour"], ascending=[False, True, True])

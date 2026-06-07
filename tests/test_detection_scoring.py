@@ -33,7 +33,10 @@ def test_detection_pipeline_flags_velocity_and_failure() -> None:
 
     assert bool(first["velocity_flag"]) is True
     assert bool(first["failure_flag"]) is True
-    assert abs(float(first["risk_score"]) - (0.75 / 1.35)) < 1e-9
+    assert bool(first["service_distribution_flag"]) is True
+    # velocity + failure + service concentration = 0.3 + 0.3 + 0.15 = 0.75;
+    # anomaly not applied so total weight = 1.35 - 0.4 = 0.95
+    assert abs(float(first["risk_score"]) - (0.75 / 0.95)) < 1e-9
     assert bool(first["is_suspicious"]) is True
     assert "High transaction velocity" in first["reasons"]
 
@@ -56,6 +59,27 @@ def test_detection_pipeline_pattern_reason_present() -> None:
 
     assert bool(row["pattern_flag"]) is True
     assert "cashout" in row["reasons"].lower()
+
+
+def test_detection_pipeline_skips_anomaly_when_disabled() -> None:
+    df = pd.DataFrame(
+        {
+            "Agent": ["A4", "A4"],
+            "Service": ["cashout", "cashout"],
+            "Amount": [100, 101],
+            "Status": ["SUCCESS", "SUCCESS"],
+            "Paid At": pd.to_datetime(["2026-01-01 11:00:00", "2026-01-01 11:05:00"]),
+        }
+    )
+
+    cfg = FraudConfig(minimum_transactions_for_anomaly=999)
+
+    report = run_fraud_detection(df, config=cfg, enable_anomaly=False)
+    row = report.iloc[0]
+
+    assert bool(row["anomaly_flag"]) is False
+    assert bool(row["anomaly_applied"]) is False
+    assert "Anomalous behavior" not in row["reasons"]
 
 
 def test_pattern_detection_avoids_false_positive_on_non_repeating_amounts() -> None:
