@@ -246,6 +246,7 @@ def render_analysis_bundle(transactions: pd.DataFrame, report: pd.DataFrame, inc
             data=excel_data,
             file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_excel_analyze",
         )
 
     with col_pdf:
@@ -255,6 +256,7 @@ def render_analysis_bundle(transactions: pd.DataFrame, report: pd.DataFrame, inc
             data=pdf_data,
             file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
             mime="application/pdf",
+            key="download_pdf_analyze",
         )
 
     if include_save:
@@ -665,6 +667,7 @@ with tab1:
                 data=excel_data,
                 file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel_history",
             )
 
         with col_pdf:
@@ -674,6 +677,7 @@ with tab1:
                 data=pdf_data,
                 file_name=f"fraud_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                 mime="application/pdf",
+                key="download_pdf_history",
             )
 
         # Save analysis to database
